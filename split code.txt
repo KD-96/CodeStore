@@ -1,0 +1,160 @@
+--------------------------- split tool ---------------------------
+splitPolygon() {
+
+    const geo = new GeoJSON();
+    const featureObj = geo.writeFeatureObject(this.splitLineFeature as any, { dataProjection: 'RFC7946', featureProjection: 'EPSG:3857' })
+
+    try {
+      this.oldFeatureId = this.singlePolygonFeature.get('id');
+      this.insideBuildings = this.singlePolygonFeature.get('buildings');
+      this.insideLots = this.singlePolygonFeature.get('lots');
+      const layer_id = this.singlePolygonFeature.get('layerId');
+
+      const polygons = polygonCutJsts(this.singlePolygonFeature, this.splitLineFeature);
+
+      this.splittedPolygons = [];
+      for (const iterator of polygons) {
+
+        const polyExtent = iterator.getGeometry()?.getExtent();
+        const center = getCenter(polyExtent as any);
+
+        const geoJson = geo.writeFeatureObject(iterator, { dataProjection: 'RFC7946', featureProjection: 'EPSG:4326' })
+
+        const tmpData: any = {}
+        tmpData.dimension = '2D';
+        tmpData.surface_relation = 'OnSurface';
+        tmpData.reference_point = center;
+        tmpData.lng = center[0];
+        tmpData.geoJson = geoJson;
+        tmpData.type = "Polygon";
+        tmpData.layer_id = layer_id;
+
+        this.splittedPolygons.push(tmpData);
+
+      }
+      this.splittedPolygons.sort((a: any, b: any) => a.lng > b.lng ? 1 : -1);
+
+      if ((this.insideBuildings && this.insideBuildings.length > 0) || (this.insideLots && this.insideLots.length > 0)) {
+        this.selectInsidePolygons(this.splittedPolygons);
+      } else {
+        this.updateSpatialUnit();
+      }
+
+
+    } catch (error) {
+      console.error('Split Error', error);
+      this.app.notify('Error occurred. Please try again.', false);
+      this.isSplitConfirm = false;
+      this.checkSplit();
+      // this.getSpatialUnits();
+    }
+
+
+    // const type = this.singlePolygonFeature.getGeometry().getType();
+    // if (type == 'MultiPolygon') {
+    //   const [polygon] = this.singlePolygonFeature.getGeometry().getPolygons();
+    //   const geom = turf.getGeom(polygon as any);
+
+    // }
+    // this.selectedPolygon = [];
+    // const unkinked = turf.unkinkPolygon(this.singlePolygon);
+    // turf.geomEach(unkinked, (geometry) => {
+    //   this.selectedPolygon.push(geometry);
+    // });
+
+    // this.oldFeatureId = this.singlePolygonFeature.get('id');
+    // this.insideBuildings = this.singlePolygonFeature.get('buildings');
+    // this.insideLots = this.singlePolygonFeature.get('lots');
+    // const layer_id = this.singlePolygonFeature.get('layerId');
+
+    // try {
+    //   // const polygonFeatures: any = polygonCut(this.selectedPolygon[0], lineGeom, this.oldFeatureId as string);
+    //   const polygonFeaturesOne: any = cutPolygon(this.selectedPolygon[0], lineGeom, 1,'upper');
+    //   const polygonFeaturesTwo: any = cutPolygon(this.selectedPolygon[0], lineGeom,-1, 'lower');
+    //   this.splittedPolygons = [];
+
+    //   if (polygonFeaturesOne.error) {
+    //     this.isSplitConfirm = false;
+    //     this.getSpatialUnits();
+    //     return this.app.notify(polygonFeaturesOne.error, false);
+    //   }
+    //   if (polygonFeaturesTwo.error) {
+    //     this.isSplitConfirm = false;
+    //     this.getSpatialUnits();
+    //     return this.app.notify(polygonFeaturesTwo.error, false);
+    //   }
+    //   const polygonFeatures = [polygonFeaturesOne,polygonFeaturesTwo];
+    //   // console.error(polygonFeatures)
+
+    //   for (const iterator of polygonFeatures) {
+
+    //     const polygonFeature = new Feature({
+    //       geometry: new Polygon(iterator.geometry.coordinates)
+    //     });
+
+    //     const polyExtent = polygonFeature.getGeometry()?.getExtent();
+    //     const center = getCenter(polyExtent as any);
+
+    //     const geoJson = geo.writeFeatureObject(polygonFeature, { dataProjection: 'RFC7946', featureProjection: 'EPSG:4326' })
+
+    //     const tmpData: any = {}
+    //     tmpData.dimension = '2D';
+    //     tmpData.surface_relation = 'OnSurface';
+    //     tmpData.reference_point = center;
+    //     tmpData.lng = center[0];
+    //     tmpData.geoJson = geoJson;
+    //     tmpData.type = "Polygon";
+    //     tmpData.layer_id = layer_id;
+
+    //     this.splittedPolygons.push(tmpData);
+
+    //   }
+    //   this.splittedPolygons.sort((a: any, b: any) => a.lng > b.lng ? 1 : -1);
+
+    //   if ((this.insideBuildings && this.insideBuildings.length > 0) || (this.insideLots && this.insideLots.length > 0)) {
+    //     this.selectInsidePolygons(this.splittedPolygons);
+    //   } else {
+    //     this.updateSpatialUnit();
+    //   }
+    // } catch (error) {
+    //   console.error('Split Error', error);
+    //   this.app.notify('Error occurred. Please try again.', false);
+    //   this.getSpatialUnits();
+    // }
+  }
+
+--------------------------------- split function -----------------------------------
+export function polygonCutJsts(polygon: any, linestring: any) {
+  const formatP = new WKT();
+  const wktPolygon = formatP.writeGeometry(polygon.getGeometry());
+
+  const formatS = new WKT();
+  const wktLine = formatS.writeGeometry(linestring.getGeometry());
+
+  const reader = new jsts.io.WKTReader();
+  const writer = new jsts.io.WKTWriter();
+
+  const a = reader.read(wktPolygon);
+  const b = reader.read(wktLine);
+  const union = a.getExteriorRing().union(b);
+
+  const polygonizer = new jsts.operation.polygonize.Polygonizer();
+
+  polygonizer.add(union);
+
+  const polyPolygons = polygonizer.getPolygons();
+
+  const polygons: any = [];
+  for (let i = polyPolygons.iterator(); i.hasNext();) {
+    const wkt = i.next();
+    // console.log();
+    const feature = new WKT().readFeature(writer.write(wkt), {
+      dataProjection: 'RFC7946',
+      featureProjection: 'EPSG:4326',
+    });
+    polygons.push(feature);
+  }
+  return polygons;
+
+}
+
